@@ -501,12 +501,10 @@ const StudentDashboard: React.FC = () => {
                     
                     {/* Bottom section with consistent alignment */}
                     <div className="mt-auto space-y-3">
-                      <div className="flex items-center justify-end">
-                        <span className="text-sm text-gray-500 dark:text-gray-400">Serves {item.serves}</span>
-                      </div>
-                      {/* Available items display */}
+                      {/* Available and Serves on same line */}
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">Available: {item.quantity_available}</span>
+                        <span className="text-sm text-green-600 dark:text-green-400 font-medium">Available: {item.quantity_available}</span>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Serves {item.serves}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-gray-500 dark:text-gray-400">{item.canteen_name}</span>
