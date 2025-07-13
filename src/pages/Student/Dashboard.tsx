@@ -152,14 +152,16 @@ const StudentDashboard: React.FC = () => {
           return;
         }
 
-        const { error } = await supabase
+        // Update cart quantity
+        const { error: cartError } = await supabase
           .from('cart_items')
           .update({ quantity: existingItem.quantity + 1 })
           .eq('id', existingItem.id);
 
-        if (error) throw error;
+        if (cartError) throw cartError;
       } else {
-        const { error } = await supabase
+        // Insert new cart item
+        const { error: insertError } = await supabase
           .from('cart_items')
           .insert({
             user_id: user?.id,
@@ -167,7 +169,7 @@ const StudentDashboard: React.FC = () => {
             quantity: 1
           });
 
-        if (error) throw error;
+        if (insertError) throw insertError;
       }
 
       // Update the menu item quantity in the database
@@ -211,14 +213,29 @@ const StudentDashboard: React.FC = () => {
         return;
       }
     }
+
     try {
-      const { error } = await supabase
+      // Update cart quantity
+      const { error: cartError } = await supabase
         .from('cart_items')
         .update({ quantity: newQuantity })
         .eq('id', cartItemId);
 
-      if (error) throw error;
+      if (cartError) throw cartError;
+
+      // Update menu item quantity (subtract the difference from available stock)
+      const { error: updateError } = await supabase
+        .from('menu_items')
+        .update({ 
+          quantity_available: cartItem.menu_items.quantity_available - quantityDifference 
+        })
+        .eq('id', cartItem.menu_item_id);
+
+      if (updateError) throw updateError;
+
+      // Refresh both cart and menu items
       await fetchCartItems();
+      await fetchMenuItems();
     } catch (error) {
       console.error('Error updating cart quantity:', error);
       showToast('Failed to update quantity', 'error');
@@ -309,20 +326,8 @@ const StudentDashboard: React.FC = () => {
 
       if (clearCartError) throw clearCartError;
 
-
-      // Update menu item quantity (add back or subtract based on quantity change)
-      const { error: updateError } = await supabase
-        .from('menu_items')
-        .update({ 
-          quantity_available: cartItem.menu_items.quantity_available - quantityDifference 
-        })
-        .eq('id', cartItem.menu_item_id);
-
-      if (updateError) throw updateError;
-
       // Refresh both cart and menu items
       await fetchCartItems();
-      await fetchMenuItems();
       await fetchOrders();
       await fetchMenuItems(); // Refresh menu to show updated quantities
       setActiveTab('orders');
