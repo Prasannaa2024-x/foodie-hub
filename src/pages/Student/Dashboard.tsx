@@ -136,10 +136,22 @@ const StudentDashboard: React.FC = () => {
   };
 
   const addToCart = async (menuItem: MenuItem) => {
+    // Check if item is available
+    if (menuItem.quantity_available <= 0) {
+      showToast('Item is out of stock', 'error');
+      return;
+    }
+
     try {
       const existingItem = cartItems.find(item => item.menu_item_id === menuItem.id);
 
       if (existingItem) {
+        // Check if we can add more (don't exceed available quantity)
+        if (existingItem.quantity >= menuItem.quantity_available) {
+          showToast('Cannot add more items. Stock limit reached.', 'error');
+          return;
+        }
+
         const { error } = await supabase
           .from('cart_items')
           .update({ quantity: existingItem.quantity + 1 })
@@ -158,7 +170,17 @@ const StudentDashboard: React.FC = () => {
         if (error) throw error;
       }
 
+      // Update the menu item quantity in the database
+      const { error: updateError } = await supabase
+        .from('menu_items')
+        .update({ quantity_available: menuItem.quantity_available - 1 })
+        .eq('id', menuItem.id);
+
+      if (updateError) throw updateError;
+
+      // Refresh both cart and menu items to reflect changes
       await fetchCartItems();
+      await fetchMenuItems();
       showToast('Item added to cart', 'success');
     } catch (error) {
       console.error('Error adding to cart:', error);
@@ -172,6 +194,23 @@ const StudentDashboard: React.FC = () => {
       return;
     }
 
+    // Find the cart item to get current quantity and menu item details
+    const cartItem = cartItems.find(item => item.id === cartItemId);
+    if (!cartItem) {
+      showToast('Cart item not found', 'error');
+      return;
+    }
+
+    const quantityDifference = newQuantity - cartItem.quantity;
+    
+    // If increasing quantity, check if enough stock is available
+    if (quantityDifference > 0) {
+      const menuItem = cartItem.menu_items;
+      if (quantityDifference > menuItem.quantity_available) {
+        showToast('Not enough stock available', 'error');
+        return;
+      }
+    }
     try {
       const { error } = await supabase
         .from('cart_items')
@@ -187,14 +226,35 @@ const StudentDashboard: React.FC = () => {
   };
 
   const removeFromCart = async (cartItemId: string) => {
+    // Find the cart item to restore quantity to menu item
+    const cartItem = cartItems.find(item => item.id === cartItemId);
+    if (!cartItem) {
+      showToast('Cart item not found', 'error');
+      return;
+    }
+
     try {
+      // Remove from cart
       const { error } = await supabase
         .from('cart_items')
         .delete()
         .eq('id', cartItemId);
 
       if (error) throw error;
+
+      // Restore quantity to menu item
+      const { error: updateError } = await supabase
+        .from('menu_items')
+        .update({ 
+          quantity_available: cartItem.menu_items.quantity_available + cartItem.quantity 
+        })
+        .eq('id', cartItem.menu_item_id);
+
+      if (updateError) throw updateError;
+
+      // Refresh both cart and menu items
       await fetchCartItems();
+      await fetchMenuItems();
       showToast('Item removed from cart', 'success');
     } catch (error) {
       console.error('Error removing from cart:', error);
@@ -209,6 +269,7 @@ const StudentDashboard: React.FC = () => {
     }
 
     try {
+      // Update cart quantity
       const totalAmount = cartItems.reduce(
         (sum, item) => sum + (item.menu_items.price * item.quantity),
         0
@@ -240,6 +301,7 @@ const StudentDashboard: React.FC = () => {
 
       if (itemsError) throw itemsError;
 
+      // Clear cart (this will not restore quantities since order is placed)
       const { error: clearCartError } = await supabase
         .from('cart_items')
         .delete()
@@ -247,8 +309,22 @@ const StudentDashboard: React.FC = () => {
 
       if (clearCartError) throw clearCartError;
 
+
+      // Update menu item quantity (add back or subtract based on quantity change)
+      const { error: updateError } = await supabase
+        .from('menu_items')
+        .update({ 
+          quantity_available: cartItem.menu_items.quantity_available - quantityDifference 
+        })
+        .eq('id', cartItem.menu_item_id);
+
+      if (updateError) throw updateError;
+
+      // Refresh both cart and menu items
       await fetchCartItems();
+      await fetchMenuItems();
       await fetchOrders();
+      await fetchMenuItems(); // Refresh menu to show updated quantities
       setActiveTab('orders');
       showToast('Order placed successfully!', 'success');
     } catch (error) {
@@ -415,10 +491,6 @@ const StudentDashboard: React.FC = () => {
                       <Star className="w-3 h-3 text-yellow-400 fill-current" />
                       <span className="text-sm font-medium">{item.rating}</span>
                     </div>
-                    {/* Available quantity badge in top left corner */}
-                    <div className="absolute top-3 left-3 bg-green-600/90 backdrop-blur-sm text-white px-2 py-1 rounded-lg">
-                      <span className="text-xs font-medium">{item.quantity_available} left</span>
-                    </div>
                   </div>
                   <div className="p-4 flex flex-col flex-grow">
                     <div className="flex justify-between items-start mb-2">
@@ -432,14 +504,19 @@ const StudentDashboard: React.FC = () => {
                       <div className="flex items-center justify-end">
                         <span className="text-sm text-gray-500 dark:text-gray-400">Serves {item.serves}</span>
                       </div>
+                      {/* Available items display */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Available: {item.quantity_available}</span>
+                      </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-gray-500 dark:text-gray-400">{item.canteen_name}</span>
                         <button
                           onClick={() => addToCart(item)}
-                          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center space-x-2"
+                          disabled={item.quantity_available <= 0}
+                          className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors flex items-center space-x-2"
                         >
                           <Plus className="w-4 h-4" />
-                          <span>Add</span>
+                          <span>{item.quantity_available <= 0 ? 'Out of Stock' : 'Add'}</span>
                         </button>
                       </div>
                     </div>
